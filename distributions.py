@@ -1,5 +1,6 @@
 import numpy as np
 import math
+from scipy.stats import truncnorm
 
 # Custom classes for distributions
 class Exponential:
@@ -78,3 +79,20 @@ class Lognormal:
         Sample from the normal distribution
         """
         return self.rand.lognormal(self.mu, self.sigma)
+    
+    
+    
+# Function for sampling elective surgery arrival times
+def sample_daily_arrival_times(size, random_seed=None):
+    """
+    Sample daily arrival times from a truncated normal distribution.
+    """
+    np.random.seed(random_seed)
+    mean = 17.91
+    std = 3.16
+    lower_bound = 0
+    upper_bound = 24
+    a, b = (lower_bound - mean) / std, (upper_bound - mean) / std
+    daily_arrival_times = truncnorm.rvs(a, b, loc=mean, scale=std, size=size)   
+    daily_arrival_times.sort()
+    return daily_arrival_times
