@@ -2,6 +2,8 @@ import numpy as np
 import math
 from scipy.stats import truncnorm
 
+
+
 # Custom classes for distributions
 class Exponential:
     '''
@@ -79,6 +81,22 @@ class Lognormal:
         Sample from the normal distribution
         """
         return self.rand.lognormal(self.mu, self.sigma)
+    
+
+    
+class Triangular:
+    '''
+    Convenience class for the triangular distribution.
+    packages up distribution parameters, seed and random generator.
+    '''
+    def __init__(self, low, mode, high, random_seed=None):
+        self.rand = np.random.default_rng(seed=random_seed)
+        self.low = low
+        self.high = high
+        self.mode = mode
+        
+    def sample(self, size=None):
+        return self.rand.triangular(self.low, self.mode, self.high, size=size)
     
     
     
