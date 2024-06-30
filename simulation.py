@@ -1,3 +1,31 @@
+'''
+A critical care unit DES model 
+replicated to the original model
+developed by Griffiths et al.
+
+Main model class: CCU 
+Patient process class: Patient 
+                    (subclass: ElectivePatient)
+Scenario class
+
+Process overview:
+    Emergency admissions:
+    1. Patient waits for a free bed in CCU
+    2. Patient stays in the CCU
+    3. Discharge
+    4. Changeover
+
+    Elective surgery admissions:
+    1. Check if there is a free bed: Yes or No?
+    Yes ->
+    2. Patient stays in the CCU
+    3. Discharge
+    4. Changeover
+    No -> Cancel the surgery
+
+'''
+
+import math
 import simpy
 import numpy as np
 import itertools
@@ -167,6 +195,9 @@ class Patient:
             
         env: simpy.Environment
             the simulation environment
+
+        source: str
+            Patient arrival sources
             
         args: Scenario
             The input data for the scenario
@@ -176,7 +207,6 @@ class Patient:
         self.env = env        
         self.source = source        
         self.beds = args.beds
-        
 
         # Length of stay (LOS) distributions for five types of patients
         self.ae_los_dist = args.ae_los_dist
@@ -184,6 +214,7 @@ class Patient:
         self.emer_los_dist = args.emer_los_dist
         self.oth_los_dist = args.oth_los_dist
         self.xray_los_dist = args.xray_los_dist
+
         # changeover distribution
         self.changeover_dist = args.changeover_dist
         
@@ -265,28 +296,41 @@ class ElectivePatient(Patient):
             
         env: simpy.Environment
             the simulation environment
+
+        source: str
+            Patient arrival sources
             
         args: Scenario
             The input data for the scenario
         '''
         super().__init__(identifier, env, source, args)
+
+        # LOS and changeover distributions
         self.es_los_dist = args.es_los_dist
         self.changeover_dist = args.changeover_dist
+
+        # warm-up period
         self.warm_up = args.warm_up
         
+        # individual parameter
         self.los = 0.0
     
     @classmethod
     def reset_cancellations(cls):
+        '''
+        Reset the cancellations list 
+        in the class method.
+        '''
         cls.cancelled_surgeries = []
     
     def service(self):
         '''
         simulates the process for planned admissions in CCU 
         
-        1. request a bed or cancel the surgery
-        2. stay in CCU for a period of LOS
-        3. exit system.
+        1. Check if there is free bed
+        2. request a bed or cancel the surgery
+        3. stay in CCU for a period of LOS
+        4. exit system.
         
         '''
         # record the time that patient entered the system
@@ -297,6 +341,7 @@ class ElectivePatient(Patient):
             # request a bed
             with self.beds.request() as req:
                 yield req
+
                 # sample LOS
                 self.los = self.es_los_dist.sample()
                 trace(f'Patient {self.identifier} from {self.source}'\
@@ -312,7 +357,7 @@ class ElectivePatient(Patient):
                 yield self.env.timeout(changeover)
                 trace(f'Bed released at {self.env.now:.2f}')
         else:
-            # Add in the calcelled list
+            # Add patient in the calceled list
             # after the warm up
             if self.env.now >= self.warm_up:
                 ElectivePatient.cancelled_surgeries.append(self.identifier)
@@ -331,7 +376,6 @@ class CCU:
         
         Params:
         -------
-        env: simpy.Environment
         
         args: Scenario
             container class for simulation model inputs.
@@ -341,6 +385,7 @@ class CCU:
         self.init_resources()
         self.patients = []
         
+        # IAT distributions 
         self.ae_arrival_dist = args.ae_arrival_dist
         self.ward_arrival_dist = args.ward_arrival_dist
         self.emer_arrival_dist = args.emer_arrival_dist
@@ -377,6 +422,9 @@ class CCU:
         warm_up, float, optional (default=0)
             length of initial transient period to truncate
             from results.
+
+        daily_sample_size: int, defalt: DAILY_SAMPLE_SIZE
+            daily arrivals number of elective surgery patients
 
         Returns:
         --------
@@ -502,7 +550,7 @@ class CCU:
             
     def xray_arrivals_generator(self):
         '''
-        IAT generator for xray patients
+        IAT generator for X-ray patients
         '''
         while True:
             inter_arrival_time = self.xray_arrival_dist.sample()
@@ -526,8 +574,18 @@ class CCU:
             
     def es_arrivals_generator(self, num_weeks, daily_sample_size):
         '''
-        Arrival times generator for elective surgery patients
+        Arrival generator for elective surgery patients
+
+        Param:
+        ------------
+        num_weeks: int
+            run length transformed to weeks
+
+        daily_sample_size: int
+            daily arrival number of elective patients
+            
         '''
+        # reset the cancellation list
         ElectivePatient.reset_cancellations()
         
         while True:
@@ -583,7 +641,7 @@ class CCU:
         oth_admissions = sum(patient.source == 'Other Hospital' for patient in self.patients)
         xray_admissions = sum(patient.source == 'X-ray' for patient in self.patients)
 
-        # Calculate the number of cancelled elective surgery patients
+        # Calculate the number of canceled elective surgery patients
         cancelled_es = len(ElectivePatient.cancelled_surgeries)
         es_admissions = sum(patient.source == 'Elective Surgery' for patient in self.patients) - cancelled_es
 
@@ -625,6 +683,24 @@ class Auditor:
                  interval=DEFAULT_WARMUP_AUDIT_INTERVAL):
         '''
         Auditor Constructor
+
+        Params:
+        ----------------------
+        model: instance of CCU class
+
+        args: Scenario
+            container class for simulation model inputs.
+
+        run_length: float, optional
+            default: DEFAULT_RESULTS_COLLECTION_PERIOD
+
+        first_obs: float, optional
+            first time to run the auditor
+            default: WARM_UP
+
+        interval: float, optional
+            intervals to run the auditor
+            default: DEFAULT_WARMUP_AUDIT_INTERVAL
         
         '''
         self.env = model.env
@@ -647,6 +723,9 @@ class Auditor:
         
             
     def add_resource_to_audit(self, resource, name='bed', audit_type='qs'):
+        '''
+        Add resource to auditor for further calculations
+        '''
         if 'q' in audit_type:
             self.queues.append((name, resource))
             self.metrics[f'queue_length_{name}'] = []
@@ -738,6 +817,8 @@ def single_run(scenario,
         for a random set of seeds.
         
     daily_sample_size: int
+        daily arrival number of elective surgery patients
+        default: DAILY_SAMPLE_SIZE
         
     Returns:
     --------
@@ -751,7 +832,7 @@ def single_run(scenario,
     # create an instance of the model
     model = CCU(scenario)
     
-    # create an auditor
+    # create an instance of auditor
     auditor = Auditor(model, scenario)
     auditor.add_resource_to_audit(scenario.beds)
     
@@ -795,12 +876,17 @@ def multiple_replications(scenario,
     n_reps: int, optional (default=DEFAULT_N_REPS)
         Number of independent replications to run.
 
+    daily_sample_size: int (default: DAILY_SAMPLE_SIZE)
+        daily arrival number of elective surgery patients
+        
     n_jobs, int, optional (default=-1)
         No. replications to run in parallel.
-        
+
     Returns:
     --------
-    List
+        pandas.DataFrame:
+        results from multiple replications.
+ 
     '''    
     res = Parallel(n_jobs=n_jobs)(delayed(single_run)(scenario, 
                                                       rc_period, 
