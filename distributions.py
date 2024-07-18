@@ -1,5 +1,15 @@
-import numpy as np
+'''
+Distribution utility classes
+    Exponential
+    Lognormal
+    Triangular
+
+A function to sample daily arrivals
+    following a truncated normal distribution
+
+'''
 import math
+import numpy as np
 from scipy.stats import truncnorm
 
 
@@ -96,14 +106,30 @@ class Triangular:
         self.mode = mode
         
     def sample(self, size=None):
+        """
+        Sample from the triangular distribution
+        """
         return self.rand.triangular(self.low, self.mode, self.high, size=size)
     
     
     
-# Function for sampling elective surgery arrival times
+
 def sample_daily_arrival_times(size, random_seed=None):
     """
     Sample daily arrival times from a truncated normal distribution.
+
+    Params:
+    -------
+    size: int
+        Daily sample size
+    
+    random_seed: int, optional (default=None)
+        A random seed to reproduce samples.  If set to none then a unique
+        sample is created.
+                
+    Returns:
+    -------
+    (float)
     """
     np.random.seed(random_seed)
     mean = 17.91
